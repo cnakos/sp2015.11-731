@@ -12,7 +12,7 @@ optparser.add_option("-n", "--num_sentences", dest="num_sents", default=sys.maxi
 
 # Implementation of alignment using IBM Model 1.
 sys.stderr.write("Training with IBM Model 1...\n")
-bitext = [[sentence.strip().split() for sentence in pair.split(' ||| ')] for pair in open(opts.bitext)][:opts.num_sents]
+bitext = [[[x.lower() for x in sentence.strip().split()] for sentence in pair.split(' ||| ')] for pair in open(opts.bitext)][:opts.num_sents]
 
 ### IBM Model 1 ###
 

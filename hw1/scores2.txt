@@ -28,11 +28,15 @@ Quite good, but need a way to work in DIAG to make it worthwhile.
 Pending that, let's mess with EXP
 1K      exp_1K2.al      35m23.003s  0.555521
 1K      exp_1K3.al      31m5.307s   0.574448
-1K      exp_1K4.al      
+1K      exp_1K4.al      6m22.594s   0.590536
 
 exp_1K2.al: Threshold = 0.5, Min phrase = 2; 253011 new
 exp_1K3.al: Threshold = 0.75, Min phrase = 2; 78381 new
 exp_1K4.al: Ditto, w/ RegWeight = 0.25
+
+No good.  There's a slight chance it works better with IBM2.
+Plus it looks like emphasizing the "good" ones makes it worse.
+
 
 Combining DIAG with IBM2:
 1K      diag2_1K1.al    N/A         0.457413
@@ -53,4 +57,23 @@ I'll try a full run just for fun.
 Hey, it snuck past diag's 100K run by half a point.
 Time to upload it.
 
+Next up: Markov assumption on the alignments instead of pure independence.
+1K      markov_1K1.al   5m24.057s   0.447792
+100K    markov_100K1.al N/A         N/A
 
+Had to smooth zero-denominator probs to 0.01.
+But memory blossoms to 12.2G after one round of EM.
+We're going to need to limit that somehow.
+One approach might be to skip the dependency on j in favor of one on a_prev.
+
+Let's try one of these with params initialized to something smarter.
+How about 0.6 - 0.5 * abs(len(f) - len(e)) / max(len(f), len(e))
+
+1K      diag2_1K3.al    5m33.728s   0.432334
+100K    diag2_100K2.al  25m55.707s  0.322397(*)
+100K    diag2_100K3.al  
+
+That's a slightly better result.  Time for a full run.
+Again, that's a very slightly better result.
+Probably not worth a new upload.
+I'm going to up the count to 10 for diag2_100K3.al.

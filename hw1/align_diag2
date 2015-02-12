@@ -17,7 +17,7 @@ bitext = [[[x.lower() for x in sentence.strip().split()] for sentence in pair.sp
 
 ### IBM Model 2 w/ Diagonal ###
 
-NUM_ITERATIONS = 5
+NUM_ITERATIONS = 10
 NUM_TRAINING_DATA = sys.maxint
 NONE_INS = True # Whether to align w/ null token as well
 P0 = 0.08
@@ -28,6 +28,15 @@ def uniform_parameters(p=0.25):
 
 def random_parameters():
     return defaultdict(random)
+
+def word_parameters():
+    class _DefDict(dict):
+        def __missing__(self, key):
+            m = float(len(key[0])) if key[0] else 0.0
+            n = float(len(key[1])) if key[1] else 0.0
+            result = self[key] = 0.6 - 0.5 * abs(m - n) / max(m, n)
+            return result
+    return _DefDict()
 
 def align_parameters():
     class _DefDict(dict):
@@ -82,7 +91,7 @@ def em_iteration(params, bitext):
     return (words, align)
 
 # Parameters: Expected p(e_i | f_{a_i}).
-words, align = uniform_parameters(), align_parameters()
+words, align = word_parameters(), align_parameters()
 params = (words, align)
 if NONE_INS:
     for (f, e) in bitext:

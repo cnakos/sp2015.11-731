@@ -3,6 +3,7 @@ import optparse
 import sys
 from collections import defaultdict
 from random import random, choice
+from math import exp
 
 optparser = optparse.OptionParser()
 optparser.add_option("-b", "--bitext", dest="bitext", default="data/dev-test-train.de-en", help="Parallel corpus (default data/dev-test-train.de-en)")
@@ -10,15 +11,17 @@ optparser.add_option("-t", "--threshold", dest="threshold", default=0.5, type="f
 optparser.add_option("-n", "--num_sentences", dest="num_sents", default=sys.maxint, type="int", help="Number of sentences to use for training and alignment")
 (opts, _) = optparser.parse_args()
 
-# Implementation of alignment using IBM Model 2.
-sys.stderr.write("Training with IBM Model 2...\n")
+# Implementation of alignment using IBM Model 2 w/ Diagonal.
+sys.stderr.write("Training with IBM Model 2 w/ Diagonal...\n")
 bitext = [[[x.lower() for x in sentence.strip().split()] for sentence in pair.split(' ||| ')] for pair in open(opts.bitext)][:opts.num_sents]
 
-### IBM Model 2 ###
+### IBM Model 2 w/ Diagonal ###
 
 NUM_ITERATIONS = 5
-NUM_TRAINING_DATA = 100000 # sys.maxint
-NONE_INS = False # Whether to align w/ null token as well
+NUM_TRAINING_DATA = sys.maxint
+NONE_INS = True # Whether to align w/ null token as well
+P0 = 0.08
+LAMBDA = 4.0
 
 def uniform_parameters(p=0.25):
     return defaultdict(lambda: p)
@@ -26,12 +29,32 @@ def uniform_parameters(p=0.25):
 def random_parameters():
     return defaultdict(random)
 
+def align_parameters():
+    class _DefDict(dict):
+        def __missing__(self, key):
+            result = self[key] = dfunc(*key)
+            return result
+    return _DefDict()
+
+hdict = {}
+ddict = {}
+
+def hfunc(i, j, m, n):
+    if (i, j, m, n) not in hdict: hdict[(i, j, m, n)] = - abs(float(i)/m - float(j)/n)
+    return hdict[(i, j, m, n)]
+
+def dfunc(i, j, m, n):
+    if (i, j, m, n) not in ddict:
+        Z = sum([exp(LAMBDA * hfunc(i, j_, m, n)) for j_ in range(n)])
+        ddict[(i, j, m, n)] = (1 - P0) * exp(LAMBDA * hfunc(i, j, m, n)) / Z
+    return ddict[(i, j, m, n)]
+
 def best_alignment(e, f, params):
     words, align = params
     a = []
-    l, m = len(f), len(e)
+    m, n = len(e), len(f)
     for i, e_i in enumerate(e):
-        probs = [words[(e_i, f_j)] * align[(i, j, l, m)] for j, f_j in enumerate(f)]
+        probs = [words[(e_i, f_j)] * align[(i, j, m, n)] for j, f_j in enumerate(f)]
         a.append(choice([j for j, p in enumerate(probs) if p == max(probs)]))
     return a
 
@@ -39,27 +62,27 @@ def em_iteration(params, bitext):
     words, align = params
     ef_counts = defaultdict(float) # Avoid integer division problems.
     f_counts = defaultdict(float)
-    ilm_counts = defaultdict(float)
-    ijlm_counts = defaultdict(float)
+    imn_counts = defaultdict(float)
+    ijmn_counts = defaultdict(float)
     for (f, e) in bitext:
-        l, m = len(f), len(e)
+        m, n = len(e), len(f)
         for i, e_i in enumerate(e):
-            s = sum([align[(i, _j, l, m)] * words[(e_i,_f)] for _j, _f in enumerate(f)])
+            s = sum([align[(i, _j, m, n)] * words[(e_i,_f)] for _j, _f in enumerate(f)])
             for j, f_j in enumerate(f):
-                delta = align[(i, j, l, m)] * words[(e_i,f_j)] / s
+                delta = align[(i, j, m, n)] * words[(e_i,f_j)] / s
                 ef_counts[(e_i, f_j)] += delta
                 f_counts[f_j] += delta
-                ilm_counts[(i, l, m)] += delta
-                ijlm_counts[(i, j, l, m)] += delta
+                imn_counts[(i, m, n)] += delta
+                ijmn_counts[(i, j, m, n)] += delta
     
     for (e, f) in words: # set(params.keys()) | set(ef_counts.keys()):
         words[(e, f)] = ef_counts[(e, f)] / f_counts[f]
-    for (i, j, l, m) in align:
-        align[(i, j, l, m)] = ijlm_counts[(i, j, l, m)] / ilm_counts[(i, l, m)]
+    for (i, j, m, n) in align:
+        align[(i, j, m, n)] = ijmn_counts[(i, j, m, n)] / imn_counts[(i, m, n)]
     return (words, align)
 
 # Parameters: Expected p(e_i | f_{a_i}).
-words, align = uniform_parameters(), uniform_parameters()
+words, align = uniform_parameters(), align_parameters()
 params = (words, align)
 if NONE_INS:
     for (f, e) in bitext:

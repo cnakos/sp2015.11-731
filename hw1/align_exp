@@ -21,12 +21,12 @@ optparser.add_option("-n", "--num_sentences", dest="num_sents", default=sys.maxi
 NUM_ITERATIONS = 5
 NUM_TRAINING_DATA = 1000 # sys.maxint
 NONE_INS = False # Whether to align w/ null token as well
-REG_WEIGHT = 1.0 # How much to weight regular sentence alignments.
+REG_WEIGHT = 0.25 # How much to weight regular sentence alignments.
 GOOD_WEIGHT = 1.0 # How much to weight "good" sentence alignments.
-THRESHOLD = 0.5 # Fraction of words that should match.
-MIN_PHRASE = 3 # Minimum number of consecutive words needed for match.
-GOOD_FILE = 'exp-align-%i-%f.good.txt' % (NUM_TRAINING_DATA, THRESHOLD)
-OVERWRITE = True
+THRESHOLD = 0.75 # Fraction of words that should match.
+MIN_PHRASE = 2 # Minimum number of consecutive words needed for match.
+GOOD_FILE = 'exp-align-%i-%i-%f.good.txt' % (NUM_TRAINING_DATA, MIN_PHRASE, THRESHOLD)
+OVERWRITE = False
 
 cost = {
     'd': 1.0,
@@ -99,6 +99,7 @@ def write_good(bitext):
     count = 0
     for (f, e) in bitext:
         for (f_, e_) in bitext:
+            if f == f_ and e == e_: continue
             try:
                 tf = transform(f, f_)[1]
                 te = transform(e, e_)[1]

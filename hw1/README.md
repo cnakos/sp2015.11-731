@@ -1,3 +1,7 @@
+First I tried to implement IBM Model 1, but I had poor results until I stopped sampling the alignments and instead weighted them with the proportion outlined in the Model 1 paper.
+Debugging this and running it on the full training set pushed me past the baseline.
+From there I 
+
 There are three Python programs here (`-h` for usage):
 
  - `./align` aligns words using Dice's coefficient.

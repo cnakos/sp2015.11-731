@@ -5,14 +5,52 @@ DIAG w/ memoizing, real best probs
 1K      diag_1K4.al     4m22.958s   0.415615
 1K      diag_1K5.al     4m25.507s   0.438486
 1K      diag_1K6.al     4m32.954s   0.417035
-100K    diag_100K2.al   16m31.994s  0.331230*
+100K    diag_100K2.al   16m31.994s  0.331230
+1K      diag_1K7.al     4m32.612s   0.415615
 
-Lambda = 1.5 for diag_1K3.al
-Lambda = 2.0 for diag_1K4.al
-Lambda = 0.5 for diag_1K5.al
-Lambda = 1.5, P0 = 0.1, InsNone = True for diag_1K6.al
-Going to have to train these properly eventually.
-Consider reviving NoneIns to use w/ P0
+Lambda = 1.5 for diag_1K3.al.
+Lambda = 2.0 for diag_1K4.al.
+Lambda = 0.5 for diag_1K5.al.
+Lambda = 1.5, P0 = 0.1, InsNone = True for diag_1K6.al.
+Lambda = 4.0, P0 = 0.08, InsNone = True for diag_1K7.al.
+Lambda = 1.5, P0 = 0.0 for diag_100K2.al.
+These were fixed in Chris's paper, so no point training them.
+diag_1K7.al were his recommended parameters.
+The results are identical to Lambda = 2.0 and no P0.
+That means we'll leave it as is or do a full run with L=2.0.
 
-No real effect from tweaking lambda any more, or P0.
-Should do a full run with lambda = 1.5 then train it.
+Now let's try IBM2.
+100K    ibm2_100K1.al   19m28.876s  0.357098
+
+Quite good, but need a way to work in DIAG to make it worthwhile.
+
+
+Pending that, let's mess with EXP
+1K      exp_1K2.al      35m23.003s  0.555521
+1K      exp_1K3.al      31m5.307s   0.574448
+1K      exp_1K4.al      
+
+exp_1K2.al: Threshold = 0.5, Min phrase = 2; 253011 new
+exp_1K3.al: Threshold = 0.75, Min phrase = 2; 78381 new
+exp_1K4.al: Ditto, w/ RegWeight = 0.25
+
+Combining DIAG with IBM2:
+1K      diag2_1K1.al    N/A         0.457413
+10K     diag2_10K1.al   7m53.053s   0.411514
+1K      diag2_1K2.al    4m54.992s   0.455205
+100K    diag2_100K1.al  23m2.433s   0.324763*
+
+diag2_1K1.al: Lambda = 2.0, P0 = 0.0
+diag2_10K1.al: Lambda = 4.0, P0 = 0.08, InsNone = True
+diag1_1K2.al: Lambda = 4.0, P0 = 0.08, InsNone = True, InitDiag = True
+
+DIAG2 doesn't seem to work as well.
+Maybe the diag keeps the alignment training from helping.
+I'll try the diagonal as just the initial distribution.
+This is tested in diag1_1K2.al.
+This doesn't seem to have helped.
+I'll try a full run just for fun.
+Hey, it snuck past diag's 100K run by half a point.
+Time to upload it.
+
+

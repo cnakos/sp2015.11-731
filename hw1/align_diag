@@ -1,0 +1,81 @@
+#!/usr/bin/env python
+import optparse
+import sys
+from collections import defaultdict
+from random import random, choice
+from math import exp
+
+optparser = optparse.OptionParser()
+optparser.add_option("-b", "--bitext", dest="bitext", default="data/dev-test-train.de-en", help="Parallel corpus (default data/dev-test-train.de-en)")
+optparser.add_option("-t", "--threshold", dest="threshold", default=0.5, type="float", help="Threshold for aligning with Dice's coefficient (default=0.5)")
+optparser.add_option("-n", "--num_sentences", dest="num_sents", default=sys.maxint, type="int", help="Number of sentences to use for training and alignment")
+(opts, _) = optparser.parse_args()
+
+# Implementation of alignment using IBM Model 1 w/ Diagonal.
+sys.stderr.write("Training with IBM Model 1 w/ Diagonal...\n")
+bitext = [[[x.lower() for x in sentence.strip().split()] for sentence in pair.split(' ||| ')] for pair in open(opts.bitext)][:opts.num_sents]
+
+### IBM Model 1 w/ Diagonal ###
+
+NUM_ITERATIONS = 5
+NUM_TRAINING_DATA = 1000 # sys.maxint
+NONE_INS = False # Whether to align w/ null token as well
+P0 = 0.0
+LAMBDA = 1.0
+
+def uniform_parameters(p=0.25):
+    return defaultdict(lambda: p)
+
+def random_parameters():
+    return defaultdict(random)
+
+def hfunc(i, j, m, n):
+    return - abs(float(i)/m - float(j)/n)
+
+def dfunc(i, j, m, n):
+    Z = sum([exp(LAMBDA * hfunc(i, j_, m, n)) for j_ in range(n)])
+    return (1 - P0) * exp(LAMBDA * hfunc(i, j, m, n)) / Z
+
+def best_alignment(e, f, params):
+    a = []
+    m, n = len(e), len(f)
+    for i, e_i in enumerate(e):
+        probs = [dfunc(i, j, m, n) * params[(e_i, f_j)] for j, f_j in enumerate(f)]
+        a.append(choice([j for j, p in enumerate(probs) if p == max(probs)]))
+    return a
+
+def em_iteration(params, bitext):
+    ef_counts = defaultdict(float) # Avoid integer division problems.
+    f_counts = defaultdict(float)
+    for (f, e) in bitext:
+        m, n = len(e), len(f)
+        for i, e_i in enumerate(e):
+            s = sum([params[(e_i,_f)] for _f in f])
+            for j, f_j in enumerate(f):
+                delta = dfunc(i, j, m, n) * params[(e_i,f_j)] / s
+                ef_counts[(e_i, f_j)] += delta
+                f_counts[f_j] += delta
+    
+    for (e, f) in params: # set(params.keys()) | set(ef_counts.keys()):
+        params[(e, f)] = ef_counts[(e, f)] / f_counts[f]
+    return params
+
+# Parameters: Expected p(e_i | f_{a_i}).
+params = uniform_parameters()
+if NONE_INS:
+    for (f, e) in bitext:
+        f.insert(0, None)
+for k in range(NUM_ITERATIONS):
+    sys.stderr.write("Training model with iteration %i of EM algorithm.\n" % k)
+    params = em_iteration(params, bitext[:NUM_TRAINING_DATA])
+sys.stderr.write("Finished training model.\n")
+
+for (f, e) in bitext:
+    a = best_alignment(e, f, params)
+    for (i, a_i) in enumerate(a):
+        if a_i > 0 and NONE_INS:
+            sys.stdout.write("%i-%i " % (a_i-1, i))
+        else:
+            sys.stdout.write("%i-%i " % (a_i, i))
+    sys.stdout.write("\n")
+sys.stderr.write("Finished writing output.\n")

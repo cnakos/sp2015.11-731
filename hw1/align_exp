@@ -1,0 +1,172 @@
+#!/usr/bin/env python
+import optparse
+import sys
+from collections import defaultdict
+from random import random, choice
+import os.path
+
+optparser = optparse.OptionParser()
+optparser.add_option("-b", "--bitext", dest="bitext", default="data/dev-test-train.de-en", help="Parallel corpus (default data/dev-test-train.de-en)")
+optparser.add_option("-t", "--threshold", dest="threshold", default=0.5, type="float", help="Threshold for aligning with Dice's coefficient (default=0.5)")
+optparser.add_option("-n", "--num_sentences", dest="num_sents", default=sys.maxint, type="int", help="Number of sentences to use for training and alignment")
+(opts, _) = optparser.parse_args()
+
+### Experimental Model ###
+
+# Approach: Synthesize training data by aligning differences b/w same-language sentences using edit distance.
+# Use threshold to pick only good sentences, then write them to a file.
+# Run IBM Model 1 on the old and new data, with a parameter to weight them.
+# Note that insertion and deletion costs should be set to prefer alignment within a couple of words.
+
+NUM_ITERATIONS = 5
+NUM_TRAINING_DATA = 1000 # sys.maxint
+NONE_INS = False # Whether to align w/ null token as well
+REG_WEIGHT = 1.0 # How much to weight regular sentence alignments.
+GOOD_WEIGHT = 1.0 # How much to weight "good" sentence alignments.
+THRESHOLD = 0.5 # Fraction of words that should match.
+MIN_PHRASE = 3 # Minimum number of consecutive words needed for match.
+GOOD_FILE = 'exp-align-%i-%f.good.txt' % (NUM_TRAINING_DATA, THRESHOLD)
+OVERWRITE = True
+
+cost = {
+    'd': 1.0,
+    'i': 1.0,
+    's': 0.7,
+    '-': 0.0,
+}
+
+def read_bitext(file, num=sys.maxint):
+    return [[sentence.strip().split() for sentence in pair.split(' ||| ')]
+                for pair in open(file)][:num]
+
+def transform(a, b):
+    m = len(a) + 1
+    n = len(b) + 1
+    d = [[[0, '']]*n  for i in range(m)]
+    for i in range(1, m):
+        d[i][0] = [i*cost['d'], 'd'*i]
+    for j in range(1, n):
+        d[0][j] = [j*cost['i'], 'i'*j]
+    for j in range(1, n):
+        for i in range(1, m):
+            if a[i-1] == b[j-1]:
+                d[i][j] = [d[i-1][j-1][0] + cost['-'], d[i-1][j-1][1] + '-']
+            else:
+                del_op = [d[i-1][j][0] + cost['d'], d[i-1][j][1] + 'd']
+                ins_op = [d[i][j-1][0] + cost['i'], d[i][j-1][1] + 'i']
+                sub_op = [d[i-1][j-1][0] + cost['s'], d[i-1][j-1][1] + 's']
+                d[i][j] = min(del_op, ins_op, sub_op)
+    return d[m-1][n-1]
+
+def uniform_parameters(p=0.25):
+    return defaultdict(lambda: p)
+
+def random_parameters():
+    return defaultdict(random)
+
+def best_alignment(e, f, params):
+    a = []
+    for e_i in e:
+        probs = [params[(e_i, f_j)] for f_j in f]
+        a.append(choice([j for j, p in enumerate(probs) if p == max(probs)]))
+    return a
+
+def em_iteration(params, bitext, num_reg=sys.maxint):
+    ef_counts = defaultdict(float) # Avoid integer division problems.
+    f_counts = defaultdict(float)
+    for (f, e) in bitext[:num_reg]:
+        for e_i in e:
+            s = sum([params[(e_i,_f)] for _f in f])
+            for f_j in f:
+                delta = REG_WEIGHT * params[(e_i,f_j)] / s
+                ef_counts[(e_i, f_j)] += delta
+                f_counts[f_j] += delta
+
+    for (f, e) in bitext[num_reg:]:
+        for e_i in e:
+            s = sum([params[(e_i,_f)] for _f in f])
+            for f_j in f:
+                delta = GOOD_WEIGHT * params[(e_i,f_j)] / s
+                ef_counts[(e_i, f_j)] += delta
+                f_counts[f_j] += delta
+    
+    for (e, f) in params: # set(params.keys()) | set(ef_counts.keys()):
+        params[(e, f)] = ef_counts[(e, f)] / f_counts[f]
+    return params
+
+def write_good(bitext):
+    fout = open(GOOD_FILE, 'w')
+    count = 0
+    for (f, e) in bitext:
+        for (f_, e_) in bitext:
+            try:
+                tf = transform(f, f_)[1]
+                te = transform(e, e_)[1]
+                tf = enumerate([c for c in tf if c != 'i'])
+                te = enumerate([c for c in te if c != 'i'])
+                tf_to, tf_curr = [], []
+                te_to, te_curr = [], []
+                for j, c in tf:
+                    if c == 's' or c == 'i':
+                        if len(tf_curr) >= MIN_PHRASE:
+                            tf_to += tf_curr
+                        tf_curr = []
+                    else:
+                        tf_curr.append((j, c))
+                for i, c in te:
+                    if c == 's' or c == 'i':
+                        if len(te_curr) >= MIN_PHRASE:
+                            te_to += te_curr
+                        te_curr = []
+                    else:
+                        te_curr.append((i, c))
+                df = [f[j] for j, c in tf_to]
+                de = [e[i] for i, c in te_to]
+                                
+                # df = [f[j] for j, c in enumerate([d for d in tf if d != 'i']) if c == '-']
+                # de = [e[i] for i, c in enumerate([d for d in te if d != 'i']) if c == '-']
+            except Exception as exc:
+                print >>sys.stderr, "f:", f
+                print >>sys.stderr, "e:", e
+                print >>sys.stderr, "f_:", f_
+                print >>sys.stderr, "e_:", e_
+                print >>sys.stderr, "tf:", transform(f, f_)
+                print >>sys.stderr, "te:", transform(e, e_)
+                raise exc
+            if float(len(df)) / len(f) > THRESHOLD or \
+                float(len(de)) / len(e) > THRESHOLD:
+                fout.write(' '.join(df) + ' ||| ' + ' '.join(de) + '\n')
+                count += 1
+    fout.close()
+    return count
+
+# Implementation of alignment using Experimental Model.
+sys.stderr.write("Training with Experimental Model...\n")
+bitext = read_bitext(opts.bitext, opts.num_sents)
+
+# Parameters: Expected p(e_i | f_{a_i}).
+params = uniform_parameters()
+reg_train = bitext[:NUM_TRAINING_DATA]
+if not os.path.exists(GOOD_FILE) or OVERWRITE:
+    sys.stderr.write("Found %i good alignments...\n" % write_good(reg_train))
+else:
+    sys.stderr.write("Using found file %s...\n" % GOOD_FILE)
+good_train = read_bitext(GOOD_FILE)
+
+if NONE_INS:
+    for (f, e) in bitext:
+        f.insert(0, None)
+for k in range(NUM_ITERATIONS):
+    sys.stderr.write("Training model with iteration %i of EM algorithm.\n" % k)
+    params = em_iteration(params, reg_train + good_train, len(reg_train))
+sys.stderr.write("Finished training model.\n")
+
+for (f, e) in bitext:
+    a = best_alignment(e, f, params)
+    for (i, a_i) in enumerate(a):
+        if a_i > 0 and NONE_INS:
+            sys.stdout.write("%i-%i " % (a_i-1, i))
+        else:
+            sys.stdout.write("%i-%i " % (a_i, i))
+    sys.stdout.write("\n")
+sys.stderr.write("Finished writing output.\n")

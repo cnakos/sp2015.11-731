@@ -1,3 +1,18 @@
 DIAG w/ memoizing, real best probs
 1K      diag_1K2.al     4m27.524s   0.421609
-100K    diag_100K1.al   17m6.084s   0.341798*
+100K    diag_100K1.al   17m6.084s   0.341798
+1K      diag_1K3.al     4m22.502s   0.417508
+1K      diag_1K4.al     4m22.958s   0.415615
+1K      diag_1K5.al     4m25.507s   0.438486
+1K      diag_1K6.al     4m32.954s   0.417035
+100K    diag_100K2.al   16m31.994s  0.331230*
+
+Lambda = 1.5 for diag_1K3.al
+Lambda = 2.0 for diag_1K4.al
+Lambda = 0.5 for diag_1K5.al
+Lambda = 1.5, P0 = 0.1, InsNone = True for diag_1K6.al
+Going to have to train these properly eventually.
+Consider reviving NoneIns to use w/ P0
+
+No real effect from tweaking lambda any more, or P0.
+Should do a full run with lambda = 1.5 then train it.

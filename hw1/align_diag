@@ -21,7 +21,7 @@ NUM_ITERATIONS = 5
 NUM_TRAINING_DATA = sys.maxint # 1000
 NONE_INS = False # Whether to align w/ null token as well
 P0 = 0.0
-LAMBDA = 1.0
+LAMBDA = 1.5
 
 def uniform_parameters(p=0.25):
     return defaultdict(lambda: p)

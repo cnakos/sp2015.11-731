@@ -11,17 +11,14 @@ optparser.add_option("-t", "--threshold", dest="threshold", default=0.5, type="f
 optparser.add_option("-n", "--num_sentences", dest="num_sents", default=sys.maxint, type="int", help="Number of sentences to use for training and alignment")
 (opts, _) = optparser.parse_args()
 
-# Implementation of alignment using IBM Model 2 w/ Diagonal.
-sys.stderr.write("Training with IBM Model 2 w/ Diagonal...\n")
-bitext = [[[x.lower() for x in sentence.strip().split()] for sentence in pair.split(' ||| ')] for pair in open(opts.bitext)][:opts.num_sents]
-
 ### IBM Model 2 w/ Diagonal ###
 
-NUM_ITERATIONS = 10
-NUM_TRAINING_DATA = sys.maxint
+NUM_ITERATIONS = 5
+NUM_TRAINING_DATA = 1000
 NONE_INS = True # Whether to align w/ null token as well
 P0 = 0.08
 LAMBDA = 4.0
+REVERSE = True
 
 def uniform_parameters(p=0.25):
     return defaultdict(lambda: p)
@@ -89,6 +86,11 @@ def em_iteration(params, bitext):
     for (i, j, m, n) in align:
         align[(i, j, m, n)] = ijmn_counts[(i, j, m, n)] / imn_counts[(i, m, n)]
     return (words, align)
+
+# Implementation of alignment using IBM Model 2 w/ Diagonal.
+sys.stderr.write("Training with IBM Model 2 w/ Diagonal...\n")
+bitext = [[[x.lower() for x in sentence.strip().split()] for sentence in pair.split(' ||| ')] for pair in open(opts.bitext)][:opts.num_sents]
+if REVERSE: bitext = [(e, f) for (f, e) in bitext]
 
 # Parameters: Expected p(e_i | f_{a_i}).
 words, align = word_parameters(), align_parameters()

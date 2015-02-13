@@ -87,7 +87,10 @@ No help.  Guess that's it for this method.
 Symmetrization
 1K      diagr_1K1.al    5m7.898s    N/A
 1K      diags_1K1.al    N/A         0.443704
+1K	diagr_1K2.al	5m3.909s    N/A
+1K	diags_1K2.al	N/A	    0.477500
 
 diags_1K1.al from diag2_1K3.al and diagr_1K1.al w/ intersection.
 So slightly worse.
 Let's try it with union.
+Union does even worse let's put this thing to bed.

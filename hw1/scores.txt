@@ -1,0 +1,104 @@
+Targets
+User        AER
+Austin      0.189804
+Leader      0.344006 [2/4/15]
+baseline    0.423095
+default     0.792556
+
+[2/4/15]
+
+Batch 1
+Model   #Train  CULL    #Iters  InsNone File            AER
+Dice    *       N/A     N/A     N/A     dice.al         0.792556
+IBM1    1K      1.0     5       No      ibm1_1K1.al     0.823344
+IBM1    1K      0.5     5       No      ibm1_1K2.al     0.772082
+IBM1    1K      0.0     5       No      ibm1_1K3.al     0.820032
+IBM1    1K      0.5     5       Yes     ibm1_1K4.al     0.832904
+IBM1    10K     0.0     5       No      ibm1_10K1.al    0.646057
+IBM1    10K     0.5     5       No      ibm1_10K2.al    0.645426
+IBM1    10K     0.5     10      No      ibm1_10K3.al    0.613722
+
+#Train = number of training sentences
+CULL = # to multiply previous value by if count of f is zero
+#Iters = number of training iterations
+InsNone = insert None/NULL to align against
+
+Batch 2
+Model   #Train  CULL    #Iters  InsNone Params  File            AER
+IBM1    1K      0.0     5       Yes     uniform ibm1_1K5.al     0.548871
+IBM1    1K      0.0     5       No      uniform ibm1_1K6.al     0.545584
+IBM1    1K      0.5     5       No      uniform ibm1_1K7.al     0.552524
+IBM1    1K      0.0     10      No      uniform imb1_1K8.al     0.541640
+IBM1    10K     0.0     5       No      uniform ibm1_10K4.al    0.477445
+IBM1    1K      0.0     5       No      random  ibm1_1K9.al     0.579180
+IBM1    100K    N/A     5       No      uniform ibm1_100K1.al   0.419716*
+
+
+Implies I'm missing something from the IBM 1 implementation.
+I'll look at it again tomorrow, then try IBM2.
+From there I'll start experimenting w/ alignments, etc.
+CULL wasn't needed with the upgraded (correct) version of the algorithm.
+
+[2/5/15]
+
+Now the question is what's causing a 12-point drop from baseline.
+I implemented the algorithm as close to the paper as I could.
+Actually, it was just the lack of a full set.
+I ran it on the full 100K of data, and my results beat the baseline.
+
+[2/8/15]
+
+Now I'm re-running it with case-insensitivity to squeeze out a few more points.
+I'll try some more advanced stuff later today/later in the week.
+
+Batch 2
+Model   #Train  Case    #Iters  InsNone Params  File            AER
+IBM1    100K    Yes     5       No      uniform ibm1_100K2.al   0.420032
+
+[2/10/15]
+
+Today I implemented IBM Model 2.
+If it looks promising, I'll extend it with jump width and/or Dyer's diagonal.
+The 1K run performs slightly worse than IBM Model 1.
+This may be due to the parameterization issue that Chris talks about.
+The 10K run performs slightly better than IBM Model 1.
+The 100K runs into a memory error.  I'll have to debug or try something else.
+On the docket: HMM, IBM2+jump_width, IBM2+diagonal, experimental.
+p(e_i | i) w/ binning (n = 8)?  Relative position w/ binning?
+Log product?
+
+Batch 3
+Model   #Train  #Iters  InsNone Params  File            AER
+IBM2    1K      5       No      uniform ibm2_1K1.al     0.561672
+IBM2    10K     5       No      uniform ibm2_10K1.al    0.461830
+IBM2    100K    5       No      uniform ibm2_100K1.al   N/A
+
+[2/11/15]
+
+Without running it on my desktop, I'll have to try a different approach.
+Estimating alignments seems to take my memory over the edge.
+That limits me to Model 1.  My mix and match idea could work here.
+EXP with 1K took 51 minutes to run.  That's similar to just Model 1.
+There were 3845 good lines.
+
+Batch 4
+Model   #Train  #Iters  Thresh  Gwght   Rev InsNone Params  File            AER
+EXP     1K      5       0.5     1.0     N/A No      uniform exp_1K1.al      0.552366
+EXP     1K      5       0.25    1.0     N/A No      uniform exp_1K2.al      N/A
+DUMB    1K      5       N/A     N/A     No  No      uniform dumb_1K1.al     0.653470
+DUMB    1K      5       N/A     N/A     Yes No      uniform dumb_1K2.al     0.657256
+
+Model   #Train  #Iters  LAMBDA  P0  InsNone BestFix Params  File            AER
+DIAG    1K      5       1.0     0.0 No      No      uniform diag_1K1.al     0.490379
+DIAG    10K     5       1.0     0.0 No      No      uniform diag_10K1.al    0.451577
+DIAG    1K      5       1.0     0.0 No      Yes     uniform diag_1K2.al     
+
+BestFix is a fix for a bug in choosing best alignments that didn't factor in the diagonal.
+Never mind.  That slows it down a LOT.  (5? min. 1K > projected ~45-60 min.)
+DIAG looks like a slight improvement on IBM1, though it'll take some time to run the full one.
+I've upgraded EXP but I won't be able to run it quite yet.
+
+
+
+
+

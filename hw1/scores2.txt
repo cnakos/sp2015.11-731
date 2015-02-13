@@ -94,3 +94,8 @@ diags_1K1.al from diag2_1K3.al and diagr_1K1.al w/ intersection.
 So slightly worse.
 Let's try it with union.
 Union does even worse let's put this thing to bed.
+
+Idiocy
+1K	exp2_1K1.al	N/A	    0.730284
+
+Run on the leftover 1K training data from align_exp.

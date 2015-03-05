@@ -1,0 +1,49 @@
+
+
+Sure, try to following in Python:
+
+import os
+from nltk.parse import stanford
+os.environ['STANFORD_PARSER'] = '/folder/with/standford/jars'
+os.environ['STANFORD_MODELS'] = '/folder/with/standford/jars'
+
+parser = stanford.StanfordParser(model_path="/location/of/the/englishPCFG.ser.gz")
+sentences = parser.raw_batch_parse(("Hello, My name is Melroy.", "What is your name?"))
+print sentences
+
+# GUI
+for sentence in sentences:
+    sentence.draw()
+
+Output:
+
+    [Tree('ROOT', [Tree('S', [Tree('INTJ', [Tree('UH', ['Hello'])]), Tree(',', [',']), Tree('NP', [Tree('PRP$', ['My']), Tree('NN', ['name'])]), Tree('VP', [Tree('VBZ', ['is']), Tree('ADJP', [Tree('JJ', ['Melroy'])])]), Tree('.', ['.'])])]), Tree('ROOT', [Tree('SBARQ', [Tree('WHNP', [Tree('WP', ['What'])]), Tree('SQ', [Tree('VBZ', ['is']), Tree('NP', [Tree('PRP$', ['your']), Tree('NN', ['name'])])]), Tree('.', ['?'])])])]
+
+Note 1: In this example both the parser & model jars are in the same folder.
+
+Note 2:
+
+    File name of stanford parser is: stanford-parser.jar
+    File name of stanford models is: stanford-parser-x.x.x-models.jar
+
+Note 3: The englishPCFG.ser.gz file can be found inside the models.jar file (/edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz). Please use come archive manager to 'unzip' the models.jar file.
+
+Note 4: Be sure you are using Java JRE (Runtime Environment) 1.8 also known as Oracle JDK 8. Otherwise you will get: Unsupported major.minor version 52.0.
+
+EDITED:
+
+    Download the latest version from (current version is called stanford-parser-full-2014-10-31): http://nlp.stanford.edu/software/lex-parser.shtml#Download
+
+    The stanford-parser-3.5.0-models.jar file is located in the root of the downloaded zip file. Again browse inside the models.jar file to: /edu/stanford/nlp/models/lexparser/, in order to find the englishPCFG.ser.gz file. Extract this file and remember the location of this ser.gz file.
+
+    Create new folder called 'jars'.
+
+    Place the stanford-parser.jar, stanford-parser-3.4.1-sources.jar and stanford-parser-3.4.1-javadoc.jar in the 'jars' folder.
+
+    As shown above you can use the environment variables (STANFORD_PARSER & STANFORD_MODELS) to point to this 'jars' folder. I'm using Linux, so if you use Windows please use something like: C://folder//jars.
+
+    When creating a StanfordParser instance, you can provide the model path as parameter. So give the complete model path to the ser.gz as shown above.
+
+    Now you are ready to run the example script.
+
+

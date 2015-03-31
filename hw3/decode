@@ -12,6 +12,7 @@ parser.add_argument('-s', '--stack-size', dest='s', default=1, type=int, help='M
 parser.add_argument('-n', '--num_sentences', dest='num_sents', default=sys.maxint, type=int, help='Number of sentences to decode (default=no limit)')
 parser.add_argument('-l', '--language-model', dest='lm', default='data/lm', help='File containing ARPA-format language model (default=data/lm)')
 parser.add_argument('-v', '--verbose', dest='verbose', action='store_true', default=False,  help='Verbose mode (default=off)')
+parser.add_argument('-d', '--depth', dest='depth', default=1, type=int, help='Maximum number of hypotheses to store per lm_state per stack (default=1)')
 opts = parser.parse_args()
 
 tm = models.TM(opts.tm, sys.maxint)
@@ -31,26 +32,111 @@ for f in input_sents:
     initial_hypothesis = hypothesis(0.0, lm.begin(), None, None)
 
     stacks = [{} for _ in f] + [{}]
-    stacks[0][lm.begin()] = initial_hypothesis
+    stacks[0][lm.begin()] = [(0.0, initial_hypothesis)]
+    def stack_push(stkno, hyp):
+        s = stacks[stkno]
+        if hyp.lm_state not in s:
+            s[hyp.lm_state] = [(hyp.logprob, hyp)]
+        elif s[hyp.lm_state][0] < (hyp.logprob, hyp):
+            if len(s[hyp.lm_state]) < opts.depth:
+                heapq.heappush(s[hyp.lm_state], (hyp.logprob, hyp))
+            else:
+                heapq.heapreplace(s[hyp.lm_state], (hyp.logprob, hyp))
+    def get_stack_values(stack):
+        return reduce(list.__add__, stack.itervalues(), [])
     for i, stack in enumerate(stacks[:-1]):
         # extend the top s hypotheses in the current stack
-        for h in heapq.nlargest(opts.s, stack.itervalues(), key=lambda h: h.logprob): # prune
+        for p, h in heapq.nlargest(opts.s, get_stack_values(stack), key=lambda h: h[0]): # prune
             for j in xrange(i+1,len(f)+1):
-                if f[i:j] in tm:
-                    for phrase in tm[f[i:j]]:
+                if f[i:j] not in tm: continue
+                for phrase in tm[f[i:j]]:
+                    logprob = h.logprob + phrase.logprob
+                    lm_state = h.lm_state
+                    for word in phrase.english.split():
+                        (lm_state, word_logprob) = lm.score(lm_state, word)
+                        logprob += word_logprob
+                    logprob += lm.end(lm_state) if j == len(f) else 0.0
+                    new_hypothesis = hypothesis(logprob, lm_state, h, phrase)
+                    stack_push(j, new_hypothesis)
+                #continue
+                for k in xrange(j+1, len(f)+1):
+                    if f[j:k] not in tm: continue
+                    #print >>sys.stderr, 'Phrase skip in line of length %i:' % len(f), '(%i,%i)' % (i, j), f[i:j], '-->', '(%i, %i)' % (j, k), f[j:k]
+                    for phrase in tm[f[j:k]]:
                         logprob = h.logprob + phrase.logprob
                         lm_state = h.lm_state
                         for word in phrase.english.split():
                             (lm_state, word_logprob) = lm.score(lm_state, word)
                             logprob += word_logprob
-                        logprob += lm.end(lm_state) if j == len(f) else 0.0
+                        # No end state worry here.
                         new_hypothesis = hypothesis(logprob, lm_state, h, phrase)
-                        if lm_state not in stacks[j] or stacks[j][lm_state].logprob < logprob: # second case is recombination
-                            stacks[j][lm_state] = new_hypothesis 
+                        # Low-hanging fruit.  Works, but not as well as plain reordering.
+                        for l in range(j+1, k):
+                            if f[j:l] in tm and f[l:k] in tm:
+                                for phrase1 in tm[f[j:l]]:
+                                    for phrase2 in tm[f[l:k]]:
+                                        logprob = h.logprob + phrase1.logprob
+                                        lm_state = h.lm_state
+                                        for word in phrase1.english.split():
+                                            (lm_state, word_logprob) = lm.score(lm_state, word)
+                                            logprob += word_logprob
+                                        temp_hypothesis = hypothesis(logprob, lm_state, h, phrase1)
+                                        logprob = temp_hypothesis.logprob + phrase2.logprob
+                                        for word in phrase2.english.split():
+                                            (lm_state, word_logprob) = lm.score(lm_state, word)
+                                            logprob += word_logprob
+                                        if logprob > new_hypothesis.logprob:
+                                            new_hypothesis = hypothesis(logprob, lm_state, temp_hypothesis, phrase2)
+                        # Skip the stack, we'll take f[i:j] as well.
+                        for phrase in tm[f[i:j]]:
+                            logprob = new_hypothesis.logprob + phrase.logprob
+                            lm_state = new_hypothesis.lm_state
+                            for word in phrase.english.split():
+                                (lm_state, word_logprob) = lm.score(lm_state, word)
+                                logprob += word_logprob
+                            # This goes here.
+                            logprob += lm.end(lm_state) if k == len(f) else 0.0
+                            newer_hypothesis = hypothesis(logprob, lm_state, new_hypothesis, phrase)
+                            stack_push(k, newer_hypothesis)
+                    #for l in xrange(k+1, len(f)+1):
+                    #    if f[k:l] not in tm: continue
+                    #    for phrase in tm[f[k:l]]:
+                    #        logprob = h.logprob + phrase.logprob
+                    #        lm_state = h.lm_state
+                    #        for word in phrase.english.split():
+                    #            (lm_state, word_logprob) = lm.score(lm_state, word)
+                    #            logprob += word_logprob
+                    #        # No end state worry here.
+                    #        hypotheses = {'k': new_hypothesis, 'l': hypothesis(logprob, lm_state, h, phrase)}
+                    #        def append_hypotheses(length, end=False):
+                    #            for key, val in [x for x in hypotheses.iteritems()]:
+                    #                if len(key) != length: continue
+                    #                for c in ('j', 'k', 'l'):
+                    #                    if c in key: continue # No doubles
+                    #                    fphrase = f[i:j] if c == 'j' else f[j:k] if c == k else f[k:l]
+                    #                    for phrase in tm[fphrase]:
+                    #                        logprob = val.logprob + phrase.logprob
+                    #                        lm_state = val.lm_state
+                    #                        for word in phrase.english.split():
+                    #                            (lm_state, word_logprob) = lm.score(lm_state, word)
+                    #                            logprob += word_logprob
+                    #                        logprob += lm.end(lm_state) if l == len(f) and end else 0.0
+                    #                        next_hypothesis = hypothesis(logprob, lm_state, val, phrase)
+                    #                        if key + c not in hypotheses or hypotheses[key + c].logprob < logprob:
+                    #                            hypotheses[key + c] = next_hypothesis
+                    #        append_hypotheses(1) # Length 2.
+                    #        append_hypotheses(2, end=True) # Length 3.
+                    #        for key, val in hypotheses.iteritems():
+                    #            stack_push(l, val)
+    
+    def hyp_to_str(h):
+        return '' if h.predecessor is None else '%s %s %s\n%s' % (h.phrase, h.lm_state, h.logprob, hyp_to_str(h.predecessor))
+    #print hyp_to_str(max(stacks[-1].itervalues(), key=lambda h: h.logprob))
 
     # find best translation by looking at the best scoring hypothesis
     # on the last stack
-    winner = max(stacks[-1].itervalues(), key=lambda h: h.logprob)
+    winner = max(get_stack_values(stacks[-1]), key=lambda h: h[0])[1]
+    #print >>sys.stderr, len(winner), winner
     def extract_english_recursive(h):
         return '' if h.predecessor is None else '%s%s ' % (extract_english_recursive(h.predecessor), h.phrase.english)
     print extract_english_recursive(winner)

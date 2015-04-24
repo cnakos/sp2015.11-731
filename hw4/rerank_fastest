@@ -1,0 +1,234 @@
+#!/usr/bin/env python
+import sys
+import argparse
+from collections import defaultdict
+from utils import read_ttable
+import cPickle as pickle
+import os, os.path
+import scipy.sparse
+from scipy.sparse import csr_matrix as sparse_matrix
+import random
+
+def dot(w, v):
+    s = 0.0
+    for k in set(w.keys()) & set(v.keys()):
+        s += w[k] * v[k]
+    return s
+
+default_features = ['log_prob_tgs', 'log_prob_sgt', 'log_lex_prob_tgs', 'log_lex_prob_sgt']
+_feature_index = {}
+_index = 0
+def get_index(f):
+    global _index
+    if f in _feature_index:
+        return _feature_index[f]
+    _feature_index[f] = _index
+    _index += 1
+    return _feature_index[f]
+
+def get_matrix(data=None, row_inds=None, col_inds=None, r=0, c=0):
+    r = r or len(_feature_index)
+    c = c or 1
+    if data is None or row_inds is None or col_inds is None:
+        return sparse_matrix((r,c), dtype=float)
+    else:
+        return sparse_matrix((data, (row_inds, col_inds)), shape=(r,c))
+
+def prev_feature(phrase, hyp, prev):
+    # Could probably do this as a tuple.
+    return 'src:' + phrase + '_tgt:' + hyp + '_prev:' + prev
+
+def next_feature(phrase, hyp, next):
+    # Could probably do this as a tuple.
+    return 'src:' + phrase + '_tgt:' + hyp + '_next:' + next
+
+def get_features(phrase, context, hyp, ttable, final=False):
+    left_context, right_context = context
+    lsplit, rsplit = left_context.split(), right_context.split()
+    prev_word = lsplit[-1] if len(lsplit) > 0 else ''
+    next_word = rsplit[0] if len(rsplit) > 0 else ''
+    if phrase in ttable and hyp in ttable[phrase]:
+        prev_feat = prev_feature(phrase, hyp, prev_word)
+        next_feat = next_feature(phrase, hyp, next_word)
+        data_and_rows = [(v, get_index(k)) for k, v in ttable[phrase][hyp].iteritems()]
+        if not final: # Don't add features with weight 0.0.
+            data_and_rows += [(1.0, get_index(prev_feat)), (1.0, get_index(next_feat))]
+        # Has to be a better way to do this.
+        data = [d for d, r in data_and_rows]
+        row_inds = [r for d, r in data_and_rows]
+        return get_matrix(data, row_inds, [0 for _ in row_inds])
+    else:
+        return get_matrix()
+
+def train_weights(weights, examples, num, gamma, alpha):
+    # Get an fx1 initial weights vector.
+    if type(weights) == list or type(weights) == tuple:
+        print >>sys.stderr, 'Found initial weights', type(weights), weights
+        weights = get_matrix(weights, [get_index(f) for f in default_features], [0 for f in default_features])
+    print >>sys.stderr, 'Weights dimensions:', weights.shape
+    print >>sys.stderr, 'Examples dimensions:', examples.shape
+    right = examples.dot(weights) >= gamma
+    print >>sys.stderr, 'Right dimensions:', right.shape
+    print >>sys.stderr, 'Number:', num
+    wrong_inds = [i for i in range(num) if not right[i,0]]
+    select = sparse_matrix(([1.0 for i in wrong_inds], (wrong_inds, wrong_inds)), shape=(num,num))
+    print >>sys.stderr, 'Select dimensions:', select.shape
+    return weights + alpha * (select * examples).sum(axis=0).transpose()
+
+def load_examples(input_file, refs_file, ttable):
+    with open(input_file) as input_in, open(refs_file) as refs_in:
+        j = 0
+        data, row_inds, col_inds = [], [], []
+        for i, (line, ref) in enumerate(zip(input_in, refs_in)):
+            if not line or not ref: continue
+            left_context, phrase, right_context = [part.strip() for part in line.decode('utf-8').strip().split('|||')]
+            ref = ref.decode('utf-8').strip()
+            lsplit, rsplit = left_context.split(), right_context.split()
+            prev_word = lsplit[-1] if len(lsplit) > 0 else ''
+            next_word = rsplit[0] if len(rsplit) > 0 else ''
+            if phrase in ttable and ref in ttable[phrase]:
+                best_prev_feat = get_index(prev_feature(phrase, ref, prev_word))
+                best_next_feat = get_index(next_feature(phrase, ref, next_word))
+                best_default_feats = [ttable[phrase][ref][k] for k in default_features]
+                for hyp in ttable[phrase]:
+                    if hyp == ref: continue
+                    sys.stderr.write('Working on %i / %i\r' % (i, j))
+                    sys.stderr.flush()
+                    curr_prev_feat = get_index(prev_feature(phrase, hyp, prev_word))
+                    curr_next_feat = get_index(next_feature(phrase, hyp, next_word))
+                    curr_default_feats = [ttable[phrase][hyp][k] for k in default_features]
+                    new_data = [b - c for b, c in zip(best_default_feats, curr_default_feats)] + [1.0, 1.0, -1.0, -1.0]
+                    data += new_data
+                    row_inds += [j for x in new_data]
+                    col_inds += [get_index(k) for k in default_features] + [best_prev_feat, best_next_feat, curr_prev_feat, curr_next_feat]
+                    j += 1
+        sys.stderr.write('\n')
+        print >>sys.stderr, 'Number of examples found in load_examples:', j
+        return get_matrix(data, row_inds, col_inds, j, len(_feature_index))
+
+def load_features(input_file, refs_file, ttable):
+    number_of_items = 0
+    for f in default_features:
+        get_index(f)
+    with open(input_file) as input_in, open(refs_file) as refs_in:
+        for i, (line, ref) in enumerate(zip(input_in, refs_in)):
+            if not line or not ref: continue
+            left_context, phrase, right_context = [part.strip() for part in line.decode('utf-8').strip().split('|||')]
+            ref = ref.decode('utf-8').strip()
+            if phrase in ttable:
+                number_of_items += len([x for x in ttable[phrase] if x != ref])
+            lsplit, rsplit = left_context.split(), right_context.split()
+            prev_word = lsplit[-1] if len(lsplit) > 0 else ''
+            next_word = rsplit[0] if len(rsplit) > 0 else ''
+            get_index(prev_feature(phrase, ref, prev_word))
+            get_index(next_feature(phrase, ref, next_word))
+            for hyp in ttable[phrase]:
+                get_index(prev_feature(phrase, hyp, prev_word))
+                get_index(next_feature(phrase, hyp, next_word))
+    return number_of_items
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--input', '-i', default='data/dev+test.input')
+parser.add_argument('--train-input', default='data/train.input')
+parser.add_argument('--train-refs', default='data/train.refs')
+parser.add_argument('--dev-refs', default='data/dev.refs')
+parser.add_argument('--ttable', '-t', default='data/ttable')
+parser.add_argument('--gamma', '-g', type=float, default=2.0) # Not sure best default. 0.5
+parser.add_argument('--alpha', '-a', type=float, default=0.1) # 0.01
+parser.add_argument('--save-examples', '-s1', default='examples_fastest.pickle')
+parser.add_argument('--save-weights', '-s2', default='weights_fastest.pickle')
+parser.add_argument('--save-dev', '-s3', default='dev_fastest.pickle')
+parser.add_argument('--number', '-n', type=int, default=5)
+parser.add_argument('--weights', '-w', nargs=len(default_features), type=float, default=[0.25 for _ in default_features])
+
+
+def main(args):
+    args = parser.parse_args(args)
+    translation_table = read_ttable(args.ttable)
+    num = load_features(args.train_input, args.train_refs, translation_table)
+    print >>sys.stderr, 'Number of features, post-training data:', len(_feature_index)
+    dev_num = load_features(args.input, args.dev_refs, translation_table)
+    print >>sys.stderr, 'Number of features, post-dev data:', len(_feature_index)
+    if os.path.isfile(args.save_weights):
+        print >>sys.stderr, 'Loading weights from', args.save_weights
+        with open(args.save_weights) as fin:
+            weights = pickle.load(fin)
+        print >>sys.stderr, 'Loaded weights from', args.save_weights
+    else:
+        if os.path.isfile(args.save_examples):
+            print >>sys.stderr, 'Loading example matrix from', args.save_examples
+            with open(args.save_examples) as fin:
+                example_matrix = pickle.load(fin)
+            print >>sys.stderr, 'Loaded example matrix from', args.save_examples
+        else:
+            print >>sys.stderr, 'Building example matrix from', args.train_input, args.train_refs
+            example_matrix = load_examples(args.train_input, args.train_refs, translation_table)
+            with open(args.save_examples, 'w') as fout:
+                pickle.dump(example_matrix, fout)
+            print >>sys.stderr, 'Saved example matrix to', args.save_examples
+        print >>sys.stderr, 'Skipping dev matrix...'
+        #if os.path.isfile(args.save_dev):
+        #    print >>sys.stderr, 'Loading dev matrix from', args.save_dev
+        #    with open(args.save_dev) as fin:
+        #        dev_matrix = pickle.load(fin)
+        #    print >>sys.stderr, 'Loaded dev matrix from', args.save_dev
+        #else:
+        #    print >>sys.stderr, 'Building dev matrix from', args.input, args.dev_refs
+        #    dev_matrix = load_examples(args.input, args.dev_refs, translation_table)
+        #    with open(args.save_dev, 'w') as fout:
+        #        pickle.dump(dev_matrix, fout)
+        #    print >>sys.stderr, 'Saved dev matrix to', args.save_dev
+        weights = args.weights
+        for i in range(args.number):
+            sys.stderr.write('Training weights with train, iteration %i...\r' % i)
+            weights = train_weights(weights, example_matrix, num, args.gamma, args.alpha)
+        sys.stderr.write('\n')
+        #for i in range(args.number): # Maybe just do once or twice.
+        #    sys.stderr.write('Training weights with dev, iteration %i...\r' % i)
+        #    weights = train_weights(weights, dev_matrix, dev_num, args.gamma, args.alpha)
+        #sys.stderr.write('\n')
+        with open(args.save_weights, 'w') as fout:
+            pickle.dump(weights, fout)
+        print >>sys.stderr, 'Saved weights to', args.save_weights
+
+    j = 0
+    data, row_inds, col_inds, phrases, lens = [], [], [], [], []
+    with open(args.input) as fin:
+        for i, line in enumerate(fin):
+            left_context, phrase, right_context = [part.strip() for part in line.decode('utf-8').strip().split('|||')]
+            lsplit, rsplit = left_context.split(), right_context.split()
+            prev_word = lsplit[-1] if len(lsplit) > 0 else ''
+            next_word = rsplit[0] if len(rsplit) > 0 else ''
+            if phrase in translation_table:
+                for hyp in sorted(translation_table[phrase].keys()):
+                    sys.stderr.write('Working on %i / %i\r' % (i, j))
+                    sys.stderr.flush()
+                    prev_feat = prev_feature(phrase, hyp, prev_word)
+                    curr_prev_feat = get_index(prev_feat) if prev_feat in _feature_index else -1
+                    next_feat = next_feature(phrase, hyp, next_word)
+                    curr_next_feat = get_index(next_feat) if next_feat in _feature_index else -1
+                    curr_default_feats = [translation_table[phrase][hyp][k] for k in default_features]
+                    new_data = curr_default_feats + ([1.0, 1.0] if curr_prev_feat >= 0 and curr_next_feat >= 0 else ([1.0] if curr_prev_feat >= 0 or curr_next_feat >= 0 else []))
+                    data += new_data
+                    row_inds += [j for x in new_data]
+                    col_inds += [get_index(k) for k in default_features] + ([curr_prev_feat] if curr_prev_feat >= 0 else []) + ([curr_next_feat] if curr_next_feat >= 0 else [])
+                    j += 1
+                phrases.append(phrase)
+                lens.append(len(translation_table[phrase]))
+        test_matrix = get_matrix(data, row_inds, col_inds, j, len(_feature_index))
+        print >>sys.stderr, 'Weights size:', weights.shape
+        print >>sys.stderr, 'Test size:', test_matrix.shape
+        result_matrix = test_matrix.dot(weights)
+        sys.stderr.write('\n')
+        x = 0
+        for i, (phrase, l) in enumerate(zip(phrases, lens)):
+            sys.stderr.write('Printing %i\r' % i)
+            line_vals = [result_matrix[j,0] for j in range(x, x+l)] # Could index directly, but prefer lists.
+            line_keys = sorted(translation_table[phrase].keys())
+            candidates = [k for k, v in sorted(zip(line_keys, line_vals), key=lambda (k, v): v, reverse=True)]
+            print ' ||| '.join(candidates).encode('utf-8')
+            x += l
+    sys.stderr.write('\nDone.\n')
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

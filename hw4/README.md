@@ -54,3 +54,7 @@ rerank_fastest -- Batch update version of baseline; subject of the most testing.
 rerank_stochastic -- The stochastic version of the baseline what did it.
 rerank_stretch -- Extension of binary baseline features to include left and right contexts.
 rerank_* -- Not worth uploading.  Not even I know what they all were supposed to do.
+onedef.txt -- Output for rerank_fastest with other default features taken out.
+stochastic.txt -- Output for rerank_stochastic.
+stretch.txt -- Output for rerank_stretch.
+
